@@ -48,6 +48,12 @@ export interface UserRequest {
   host?: string;
   /** Drop objects the account owns as well. Oracle needs this to drop at all. */
   cascade?: boolean;
+  /**
+   * For `create`: existing roles or groups to put the new account in. Each
+   * becomes a GRANT after the CREATE, so an account can be made and placed in
+   * one review instead of two trips through two screens.
+   */
+  roles?: string[];
 }
 
 export interface GeneratedUserSql {

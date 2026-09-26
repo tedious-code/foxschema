@@ -21,7 +21,9 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import {
+  describeAllowAll,
   dialectSupportsDbAccess,
+  findAllowAll,
   userManagementSupport,
   privilegesForPrincipal,
   type DbPrincipal,
@@ -474,6 +476,7 @@ export const AccessPermissionPanel: React.FC<{
               {selected && stage === 'account' && (
                 <AccountStage
                   principal={selected}
+                  principals={principals}
                   privileges={privileges}
                   dialect={dialect}
                   onManageUsers={onAddUser}
@@ -572,11 +575,13 @@ export const AccessPermissionPanel: React.FC<{
 
 const AccountStage: React.FC<{
   principal: DbPrincipal;
+  /** Every principal, so a role-inherited allow-all can be traced. */
+  principals: readonly DbPrincipal[];
   /** The catalog's privileges, so a drop can be described before it is run. */
   privileges: readonly DbPrivilege[];
   dialect: string;
   onManageUsers?: () => void;
-}> = ({ principal, privileges, dialect, onManageUsers }) => {
+}> = ({ principal, principals, privileges, dialect, onManageUsers }) => {
   // Both memoised: this is an unmemoised child of a panel that owns the
   // principal filter, so every keystroke re-ran dropSafetyNotes, which walks
   // the whole privileges array.
@@ -592,6 +597,10 @@ const AccountStage: React.FC<{
     () => dropSafetyNotes(principal, privileges),
     [principal, privileges]
   );
+  const allowAll = useMemo(
+    () => findAllowAll({ principal: principal.name, principals, privileges, dialect }),
+    [principal.name, principals, privileges, dialect]
+  );
   const login =
     principal.canLogin === true
       ? 'Can log in'
@@ -604,6 +613,14 @@ const AccountStage: React.FC<{
         Account details from the GRANT catalog. Add, rename, or drop accounts under User
         Management — Access generates SQL only.
       </p>
+      {allowAll && (
+        <p
+          data-testid="access-permission-allow-all"
+          className="rounded-md border border-rose-500/40 bg-rose-500/10 px-2.5 py-1.5 text-[11px] font-semibold text-rose-200"
+        >
+          {describeAllowAll(allowAll)}
+        </p>
+      )}
       <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-[12px]">
         <dt className="text-slate-500">Name</dt>
         <dd className="font-mono text-slate-100" data-testid="access-permission-account-name">

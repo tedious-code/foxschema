@@ -15,6 +15,8 @@ import {
   normalizeDbPrivileges,
   principalsFromPrivileges,
   privilegesForPrincipal,
+  reconcileDbAccess,
+  type DbPrincipal,
   type DbPrivilege,
 } from './db-access.js';
 
@@ -95,6 +97,7 @@ describe('normalizeDbPrincipals / privileges', () => {
         canLogin: false,
         memberOf: [],
         members: ['alice', 'bob'],
+        superuser: null,
       },
       {
         name: 'alice',
@@ -102,6 +105,7 @@ describe('normalizeDbPrincipals / privileges', () => {
         canLogin: true,
         memberOf: ['analysts'],
         members: [],
+        superuser: null,
       },
     ]);
     expect(groupDbPrincipals(principals).map((g) => [g.kind, g.principals.length])).toEqual([
@@ -448,5 +452,260 @@ describe('principalsFromPrivileges', () => {
 
   it('ignores blank grantees', () => {
     expect(principalsFromPrivileges([priv(''), priv('   ')])).toEqual([]);
+  });
+});
+
+describe('roles and allow-all in the catalog queries', () => {
+  it('tells a MySQL role from a user by its locked, passwordless row', () => {
+    const [first, noRoles] = buildDbAccessPrincipalQueries({ dialect: 'mysql' });
+    expect(first!.sql).toMatch(/account_locked = 'Y'.*authentication_string/s);
+    expect(first!.sql).toMatch(/THEN 'role' ELSE 'user' END AS kind/);
+    // MySQL 5.7 has no role_edges; the next probe does not need it.
+    expect(noRoles!.sql).not.toMatch(/role_edges/);
+  });
+
+  it('names a MariaDB role bare, as MariaDB does', () => {
+    const [first] = buildDbAccessPrincipalQueries({ dialect: 'mariadb' });
+    expect(first!.sql).toMatch(/is_role = 'Y' THEN u\.User ELSE CONCAT/);
+  });
+
+  it('reads MySQL-family global grants and memberships, dropping USAGE', () => {
+    for (const dialect of ['mysql', 'tidb', 'mariadb']) {
+      const [full, noRoles, legacy] = buildDbAccessPrivilegeQueries({ dialect });
+      expect(full!.sql, dialect).toMatch(/USER_PRIVILEGES\s+WHERE PRIVILEGE_TYPE <> 'USAGE'/);
+      expect(full!.sql, dialect).toMatch(dialect === 'mariadb' ? /roles_mapping/ : /role_edges/);
+      expect(noRoles!.sql, dialect).toMatch(/USER_PRIVILEGES/);
+      expect(noRoles!.sql, dialect).not.toMatch(/mysql\./);
+      expect(legacy!.sql, dialect).not.toMatch(/USER_PRIVILEGES/);
+    }
+  });
+
+  it('binds the schema filter to the two filtered selects only', () => {
+    const q = buildDbAccessPrivilegeQueries({ dialect: 'mysql', schema: 'demo_a' });
+    expect(q).toHaveLength(6);
+    expect(q[0]!.params).toEqual(['demo_a', 'demo_a']);
+    expect(q[0]!.sql.match(/\?/g)).toHaveLength(2);
+    expect(q[3]!.params).toEqual([]);
+  });
+
+  it('reads Postgres superuser and schema/database ACLs, with fallbacks', () => {
+    const [pr, prOld] = buildDbAccessPrincipalQueries({ dialect: 'postgres' });
+    expect(pr!.sql).toMatch(/rolsuper AS superuser/);
+    expect(prOld!.sql).not.toMatch(/rolsuper/);
+    const [pv, pvOld] = buildDbAccessPrivilegeQueries({ dialect: 'postgres' });
+    expect(pv!.sql).toMatch(/aclexplode\(n\.nspacl\)/);
+    expect(pv!.sql).toMatch(/aclexplode\(d\.datacl\)/);
+    // The dead branch: usage_privileges never holds a SCHEMA row.
+    expect(pv!.sql).not.toMatch(/usage_privileges/);
+    expect(pvOld!.sql).toMatch(/role_table_grants/);
+  });
+
+  it('reads ClickHouse memberships and calls *.* GLOBAL, not SYSTEM', () => {
+    const [pr] = buildDbAccessPrincipalQueries({ dialect: 'clickhouse' });
+    expect(pr!.sql).toMatch(/system\.role_grants/);
+    const [pv] = buildDbAccessPrivilegeQueries({ dialect: 'clickhouse' });
+    expect(pv!.sql).toMatch(/'GLOBAL'\) AS object_type/);
+    expect(pv!.sql).not.toMatch(/'SYSTEM'/);
+    expect(pv!.sql).toMatch(/FROM system\.role_grants/);
+  });
+
+  it('lists Db2 groups', () => {
+    const [pr] = buildDbAccessPrincipalQueries({ dialect: 'db2' });
+    expect(pr!.sql).toMatch(/'group' AS kind/);
+    expect(pr!.sql).toMatch(/GRANTEETYPE = 'G'/);
+  });
+
+  it('asks SQL Server about sysadmin, with a database-only fallback', () => {
+    const [pr, fallback] = buildDbAccessPrincipalQueries({ dialect: 'sqlserver' });
+    expect(pr!.sql).toMatch(/IS_SRVROLEMEMBER\('sysadmin'/);
+    expect(fallback!.sql).not.toMatch(/IS_SRVROLEMEMBER/);
+  });
+});
+
+describe('normalizing MySQL-family grantees', () => {
+  it("reads 'user'@'host' as user@host and a MariaDB role 'r'@'' as r", () => {
+    const out = normalizeDbPrivileges([
+      { grantee: "'zz_app'@'%'", privilege: 'SELECT', object_type: 'GLOBAL' },
+      { grantee: "'zz_reader'@''", privilege: 'SELECT', object_type: 'SCHEMA', object_schema: 'demo_a' },
+      { grantee: "'o''brien'@'%'", privilege: 'SELECT', object_type: 'TABLE' },
+    ]);
+    expect(out.map((p) => p.grantee)).toEqual(['zz_app@%', 'zz_reader', "o'brien@%"]);
+    expect(out[0]!.objectType).toBe('GLOBAL');
+  });
+
+  it('reads a superuser flag', () => {
+    const [p] = normalizeDbPrincipals([{ name: 'admin', kind: 'user', rolsuper: true }]);
+    expect(p!.superuser).toBe(true);
+  });
+});
+
+describe('GRANT and REVOKE for roles and *.*', () => {
+  it('revokes a global MySQL grant ON *.*', () => {
+    const built = buildGrantRevokeSql({
+      dialect: 'mysql',
+      action: 'revoke',
+      privilege: 'ALL',
+      objectType: 'GLOBAL',
+      grantee: 'zz_app@%',
+    });
+    expect(built).toEqual({ sql: "REVOKE ALL PRIVILEGES ON *.* FROM 'zz_app'@'%';" });
+  });
+
+  it('refuses *.* where the engine has no such grant', () => {
+    const built = buildGrantRevokeSql({
+      dialect: 'postgres',
+      action: 'grant',
+      privilege: 'SELECT',
+      objectType: 'GLOBAL',
+      grantee: 'alice',
+    });
+    expect(built).toHaveProperty('error');
+  });
+
+  it('names a MySQL role as an account in GRANT role TO user', () => {
+    const built = buildGrantRevokeSql({
+      dialect: 'mysql',
+      action: 'grant',
+      privilege: 'zz_reader@%',
+      objectType: 'ROLE',
+      objectName: 'zz_reader@%',
+      grantee: 'zz_app@%',
+    });
+    // Backticks would name a role literally called `zz_reader@%`.
+    expect(built).toEqual({ sql: "GRANT 'zz_reader'@'%' TO 'zz_app'@'%';" });
+  });
+
+  it('names a MariaDB role with no host, as grantee and as role', () => {
+    expect(formatDbGrantee('mariadb', 'zz_reader', 'role')).toBe("'zz_reader'");
+    const built = buildGrantRevokeSql({
+      dialect: 'mariadb',
+      action: 'revoke',
+      privilege: 'zz_reader',
+      objectType: 'ROLE',
+      objectName: 'zz_reader',
+      grantee: 'zz_app@%',
+    });
+    expect(built).toEqual({ sql: "REVOKE 'zz_reader' FROM 'zz_app'@'%';" });
+  });
+});
+
+describe('reconcileDbAccess', () => {
+  const principal = (name: string, extra: Partial<DbPrincipal> = {}): DbPrincipal => ({
+    name,
+    kind: 'user',
+    canLogin: true,
+    memberOf: [],
+    members: [],
+    ...extra,
+  });
+
+  it('adds a ROLE row for a membership only the principal catalog reported', () => {
+    // MySQL before this fix: member_of filled, no ROLE row, so the detail pane
+    // said "Belongs to no roles" under a list that said otherwise.
+    const out = reconcileDbAccess({
+      dialect: 'mysql',
+      principals: [
+        principal('zz_app@%', { memberOf: ['zz_reader@%'] }),
+        principal('zz_reader@%', { kind: 'role', members: ['zz_app@%'] }),
+      ],
+      privileges: [],
+    });
+    const roles = out.privileges.filter((p) => p.objectType === 'ROLE');
+    expect(roles).toEqual([
+      expect.objectContaining({
+        grantee: 'zz_app@%',
+        objectName: 'zz_reader@%',
+        source: 'derived',
+      }),
+    ]);
+  });
+
+  it('reads a membership from either side on its own', () => {
+    // MariaDB before this fix filled member_of and left members empty; other
+    // catalogs fill only a role's members. Each side alone is enough.
+    const fromMemberOf = reconcileDbAccess({
+      dialect: 'mariadb',
+      principals: [principal('app@%', { memberOf: ['reader'] }), principal('reader', { kind: 'role' })],
+      privileges: [],
+    });
+    const fromMembers = reconcileDbAccess({
+      dialect: 'mariadb',
+      principals: [principal('app@%'), principal('reader', { kind: 'role', members: ['app@%'] })],
+      privileges: [],
+    });
+    for (const out of [fromMemberOf, fromMembers]) {
+      expect(out.privileges.map((p) => [p.grantee, p.objectName])).toEqual([['app@%', 'reader']]);
+      expect(out.principals[0]!.memberOf).toEqual(['reader']);
+      expect(out.principals[1]!.members).toEqual(['app@%']);
+    }
+  });
+
+  it('fills memberOf and members from ROLE rows only the privilege catalog reported', () => {
+    const out = reconcileDbAccess({
+      dialect: 'postgres',
+      principals: [principal('alice'), principal('reader', { kind: 'role', canLogin: false })],
+      privileges: [
+        {
+          grantee: 'alice',
+          privilege: 'reader',
+          objectType: 'ROLE',
+          objectSchema: null,
+          objectName: 'reader',
+          grantable: false,
+          grantor: null,
+          state: null,
+        },
+      ],
+    });
+    expect(out.principals[0]!.memberOf).toEqual(['reader']);
+    expect(out.principals[1]!.members).toEqual(['alice']);
+    // Nothing duplicated: the row was already there.
+    expect(out.privileges).toHaveLength(1);
+  });
+
+  it('matches quoted grantees against principal names', () => {
+    const out = reconcileDbAccess({
+      dialect: 'mysql',
+      principals: [principal('zz_app@%', { memberOf: ['zz_reader@%'] })],
+      privileges: normalizeDbPrivileges([
+        { grantee: "'zz_app'@'%'", privilege: 'zz_reader@%', object_type: 'ROLE', object_name: 'zz_reader@%' },
+      ]),
+    });
+    expect(out.privileges.filter((p) => p.objectType === 'ROLE')).toHaveLength(1);
+  });
+
+  it("gives SQL Server's fixed roles the permissions they imply", () => {
+    const out = reconcileDbAccess({
+      dialect: 'sqlserver',
+      principals: [principal('db_owner', { kind: 'role' }), principal('db_datareader', { kind: 'role' })],
+      privileges: [],
+    });
+    expect(out.privileges.map((p) => [p.grantee, p.privilege, p.objectType, p.source])).toEqual([
+      ['db_owner', 'CONTROL', 'DATABASE', 'implied'],
+      ['db_datareader', 'SELECT', 'DATABASE', 'implied'],
+    ]);
+  });
+
+  it('does not change its inputs', () => {
+    const input = [principal('alice', { memberOf: ['r'] })];
+    reconcileDbAccess({ dialect: 'postgres', principals: input, privileges: [] });
+    expect(input[0]!.memberOf).toEqual(['r']);
+  });
+});
+
+describe('role membership WITH ADMIN OPTION', () => {
+  it('passes the checkbox on as ADMIN OPTION, and never on SQL Server', () => {
+    const grant = (dialect: string) =>
+      buildGrantRevokeSql({
+        dialect,
+        action: 'grant',
+        privilege: 'reader',
+        objectType: 'ROLE',
+        objectName: 'reader',
+        grantee: 'alice',
+        withGrantOption: true,
+      });
+    expect(grant('postgres')).toEqual({ sql: 'GRANT "reader" TO "alice" WITH ADMIN OPTION;' });
+    expect(grant('sqlserver')).toEqual({ sql: 'ALTER ROLE [reader] ADD MEMBER [alice];' });
   });
 });

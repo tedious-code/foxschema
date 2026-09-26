@@ -282,7 +282,8 @@ describe('DatabaseAccessModal — role membership is not an object privilege', (
     fireEvent.click(screen.getByTestId('db-access-principal-alice'));
 
     const kind = screen.getByTestId('db-access-grant-kind') as HTMLSelectElement;
-    expect([...kind.options].map((o) => o.value)).toEqual(['sections', 'membership']);
+    // Postgres has database-level ALL, so allow-all is offered too.
+    expect([...kind.options].map((o) => o.value)).toEqual(['sections', 'membership', 'all']);
 
     expect(screen.getByTestId('db-access-permission-sections')).toBeTruthy();
     fireEvent.change(kind, { target: { value: 'membership' } });
@@ -307,5 +308,176 @@ describe('DatabaseAccessModal — dialect-aware general CREATE', () => {
     expect(sql).toMatch(/CREATE/i);
     expect(sql).toMatch(/SCHEMA/i);
     expect(sql).toMatch(/alice/i);
+  });
+});
+
+describe('DatabaseAccessModal — roles and allow-all', () => {
+  /** What `GRANT ALL PRIVILEGES ON *.*` leaves in MySQL's USER_PRIVILEGES. */
+  const MYSQL_ALL = [
+    'ALTER', 'ALTER ROUTINE', 'CREATE', 'CREATE ROUTINE', 'CREATE TEMPORARY TABLES', 'CREATE USER',
+    'CREATE VIEW', 'DELETE', 'DROP', 'EVENT', 'EXECUTE', 'FILE', 'INDEX', 'INSERT', 'LOCK TABLES',
+    'PROCESS', 'REFERENCES', 'RELOAD', 'REPLICATION CLIENT', 'REPLICATION SLAVE', 'SELECT',
+    'SHOW DATABASES', 'SHOW VIEW', 'SHUTDOWN', 'SUPER', 'TRIGGER', 'UPDATE',
+  ];
+  const row = (grantee: string, privilege: string, objectType: string, extra: object = {}) => ({
+    grantee,
+    privilege,
+    objectType,
+    objectSchema: null,
+    objectName: null,
+    grantable: false,
+    grantor: null,
+    state: null,
+    ...extra,
+  });
+
+  function catalog(dialect: string, principals: unknown[], privileges: unknown[]) {
+    useSyncStore.setState({
+      connections: [
+        { id: 'c1', name: 'prod', dialect, schema: 'demo_a', database: 'demo_a', hasPassword: true },
+      ],
+    } as never);
+    fetchDbAccess.mockResolvedValue({
+      dialect,
+      schema: 'demo_a',
+      mode: 'native',
+      support: { mode: 'native', query: true, grant: true, hint: 'catalog' },
+      principals,
+      privileges,
+    });
+  }
+
+  async function open(name: string) {
+    render(<DatabaseAccessModal open onClose={() => undefined} />);
+    fireEvent.change(screen.getByTestId('db-access-connection'), { target: { value: 'c1' } });
+    await waitFor(() => expect(fetchDbAccess).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getByTestId(`db-access-principal-${name}`)).toBeTruthy());
+    fireEvent.click(screen.getByTestId(`db-access-principal-${name}`));
+  }
+
+  it('says ALL PRIVILEGES ON *.* once, tags the account, and revokes it whole', async () => {
+    catalog(
+      'mysql',
+      [{ name: 'app@%', kind: 'user', canLogin: true, memberOf: [], members: [] }],
+      MYSQL_ALL.map((p) => row('app@%', p, 'GLOBAL'))
+    );
+    await open('app@%');
+
+    expect(screen.getByTestId('db-access-allow-all-app@%').textContent).toBe('allow-all');
+    expect(screen.getByTestId('db-access-allow-all-banner').textContent).toMatch(
+      /every privilege on the whole server/
+    );
+    const group = screen.getByTestId('db-access-privgroup-0');
+    expect(group.getAttribute('data-all')).toBe('true');
+    expect(group.textContent).toMatch(/ALL PRIVILEGES/);
+    expect(group.textContent).toMatch(/every database \(\*\.\*\)/);
+    // Collapsed: 27 privileges are not 27 rows until asked for.
+    expect(screen.queryByTestId('db-access-revoke-0')).toBeNull();
+    fireEvent.click(screen.getByTestId('db-access-privgroup-toggle-0'));
+    expect(screen.getByTestId('db-access-revoke-0')).toBeTruthy();
+
+    fireEvent.click(screen.getByTestId('db-access-revoke-all-0'));
+    expect(screen.getByTestId('db-access-confirm').textContent).toMatch(
+      "REVOKE ALL PRIVILEGES ON *.* FROM 'app'@'%';"
+    );
+  });
+
+  it('shows a superuser inherited through a role, and finds it by filter', async () => {
+    catalog(
+      'postgres',
+      [
+        { name: 'admins', kind: 'role', canLogin: false, memberOf: [], members: ['alice'], superuser: true },
+        { name: 'alice', kind: 'user', canLogin: true, memberOf: ['admins'], members: [], superuser: false },
+        { name: 'bob', kind: 'user', canLogin: true, memberOf: [], members: [], superuser: false },
+      ],
+      []
+    );
+    await open('alice');
+    expect(screen.getByTestId('db-access-allow-all-banner').textContent).toMatch(
+      /Superuser.*Inherited through admins/
+    );
+
+    fireEvent.change(screen.getByTestId('db-access-filter'), { target: { value: 'allow-all' } });
+    expect(screen.queryByTestId('db-access-principal-bob')).toBeNull();
+    expect(screen.getByTestId('db-access-principal-alice')).toBeTruthy();
+    expect(screen.getByTestId('db-access-principal-admins')).toBeTruthy();
+  });
+
+  it('marks WITH GRANT OPTION as grantable, not with an asterisk', async () => {
+    catalog(
+      'postgres',
+      [{ name: 'alice', kind: 'user', canLogin: true, memberOf: [], members: [] }],
+      [row('alice', 'SELECT', 'TABLE', { objectSchema: 'public', objectName: 'orders', grantable: true })]
+    );
+    await open('alice');
+    const privileges = screen.getByTestId('db-access-privileges').textContent ?? '';
+    expect(screen.getByTestId('db-access-grantable')).toBeTruthy();
+    expect(privileges).not.toMatch(/SELECT \*/);
+  });
+
+  it('offers the roles the principal is not yet in, and still takes a typed name', async () => {
+    catalog(
+      'postgres',
+      [
+        { name: 'analysts', kind: 'role', canLogin: false, memberOf: [], members: ['alice'] },
+        { name: 'readers', kind: 'role', canLogin: false, memberOf: [], members: [] },
+        { name: 'ops', kind: 'group', canLogin: false, memberOf: [], members: [] },
+        { name: 'alice', kind: 'user', canLogin: true, memberOf: ['analysts'], members: [] },
+      ],
+      [row('alice', 'analysts', 'ROLE', { objectName: 'analysts' })]
+    );
+    await open('alice');
+    fireEvent.change(screen.getByTestId('db-access-grant-kind'), { target: { value: 'membership' } });
+
+    const pick = screen.getByTestId('db-access-grant-role') as HTMLSelectElement;
+    const offered = [...pick.options].map((o) => o.textContent);
+    expect(offered).toEqual(['readers', 'ops', 'Other… (type a name)']);
+    await waitFor(() =>
+      expect(screen.getByTestId('db-access-grant-sql').textContent).toBe('GRANT "readers" TO "alice";')
+    );
+    expect(screen.queryByTestId('db-access-grant-name')).toBeNull();
+
+    fireEvent.change(pick, { target: { value: pick.options[2]!.value } });
+    fireEvent.change(screen.getByTestId('db-access-grant-name'), { target: { value: 'auditors' } });
+    expect(screen.getByTestId('db-access-grant-sql').textContent).toBe('GRANT "auditors" TO "alice";');
+  });
+
+  it('grants everything only after the name is typed, and says what it confers', async () => {
+    catalog(
+      'mysql',
+      [{ name: 'app@%', kind: 'user', canLogin: true, memberOf: [], members: [] }],
+      []
+    );
+    await open('app@%');
+    fireEvent.change(screen.getByTestId('db-access-grant-kind'), { target: { value: 'all' } });
+
+    const target = screen.getByTestId('db-access-all-target') as HTMLSelectElement;
+    expect([...target.options].map((o) => o.value)).toEqual(['server', 'database']);
+    expect(screen.getByTestId('db-access-all-note').textContent).toMatch(/Critical.*every database/);
+    expect(screen.getByTestId('db-access-grant-sql').textContent).toBe(
+      "GRANT ALL PRIVILEGES ON *.* TO 'app'@'%';"
+    );
+    fireEvent.change(target, { target: { value: 'database' } });
+    expect(screen.getByTestId('db-access-grant-sql').textContent).toBe(
+      "GRANT ALL PRIVILEGES ON `demo_a`.* TO 'app'@'%';"
+    );
+
+    fireEvent.click(screen.getByTestId('db-access-grant'));
+    const run = screen.getByTestId('db-access-confirm-run') as HTMLButtonElement;
+    expect(run.disabled).toBe(true);
+    fireEvent.change(screen.getByTestId('db-access-confirm-type'), { target: { value: 'app' } });
+    expect(run.disabled).toBe(true);
+    fireEvent.change(screen.getByTestId('db-access-confirm-type'), { target: { value: 'app@%' } });
+    expect(run.disabled).toBe(false);
+    fireEvent.click(run);
+    await waitFor(() => expect(executeSql).toHaveBeenCalled());
+    expect((executeSql.mock.calls[0][1] as string[]).join('\n')).toMatch(/ON `demo_a`\.\*/);
+  });
+
+  it('does not offer allow-all where the engine has none', async () => {
+    catalog('sqlite', [{ name: 'x', kind: 'user', canLogin: true, memberOf: [], members: [] }], []);
+    render(<DatabaseAccessModal open onClose={() => undefined} />);
+    fireEvent.change(screen.getByTestId('db-access-connection'), { target: { value: 'c1' } });
+    expect(screen.queryByText('All privileges (allow-all)')).toBeNull();
   });
 });

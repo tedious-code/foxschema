@@ -75,7 +75,7 @@ import {
 } from '../lib/accountAlterations';
 import type { AccessPrincipalDraft } from '../lib/access';
 import { writeClipboard } from '@/shared/utils/clipboard';
-import { dialectFamily } from '@foxschema/sql';
+import { describeAllowAll, dialectFamily, findAllowAll, type AllowAll } from '@foxschema/sql';
 
 type Mode = 'idle' | 'add' | 'edit' | 'drop' | 'list';
 
@@ -190,6 +190,12 @@ export const UserManagement: React.FC<{
    */
   const [grantDatabases, setGrantDatabases] = useState<string[]>([]);
   const [grantSchemas, setGrantSchemas] = useState<string[]>([]);
+  /**
+   * Existing roles and groups the new account joins. Picked from the catalog
+   * rather than typed: the roles were listed on this very screen, and the form
+   * used to offer no way to use them.
+   */
+  const [memberRoles, setMemberRoles] = useState<string[]>([]);
   const osPasswordError = osPassword ? validateDb2OsPassword(osPassword) : null;
   const [copied, setCopied] = useState(false);
   const [copiedWithPassword, setCopiedWithPassword] = useState(false);
@@ -292,6 +298,17 @@ export const UserManagement: React.FC<{
     });
   }, [principals, filter, kindFilter]);
 
+  /** Accounts allowed everything — superuser, all of `*.*`, or the whole database. */
+  const allowAllByName = useMemo(() => {
+    const map = new Map<string, AllowAll>();
+    if (!dialect) return map;
+    for (const p of principals) {
+      const allow = findAllowAll({ principal: p.name, principals, privileges, dialect });
+      if (allow) map.set(p.name, allow);
+    }
+    return map;
+  }, [principals, privileges, dialect]);
+
   const nameOptions = useMemo(
     () =>
       principals
@@ -316,10 +333,13 @@ export const UserManagement: React.FC<{
       newName,
       alteration,
       validUntil: alteration === 'expire' ? validUntil : undefined,
-      host: isMysqlFamily && principalType === 'user' ? host : undefined,
+      // Roles carry the host too: a MySQL role is `'r'@'%'`, and a role listed
+      // with another host must be dropped by that one. MariaDB ignores it.
+      host: isMysqlFamily ? host : undefined,
       cascade,
+      roles: action === 'create' ? memberRoles : undefined,
     }),
-    [action, principalType, name, newName, alteration, validUntil, host, isMysqlFamily, cascade]
+    [action, principalType, name, newName, alteration, validUntil, host, isMysqlFamily, cascade, memberRoles]
   );
 
   const generated = useMemo(() => {
@@ -549,6 +569,7 @@ export const UserManagement: React.FC<{
     setListWarning(null);
     setName('');
     setFilter('');
+    setMemberRoles([]);
   }, [connectionId]);
 
   useEffect(() => {
@@ -574,7 +595,9 @@ export const UserManagement: React.FC<{
     setMode('drop');
     setSelectedName(p.name);
     setPrincipalType(principalTypeOf(p));
-    if (isMysqlFamily && p.kind === 'user') {
+    // A MySQL or TiDB role is an account too, listed as name@host; a MariaDB
+    // role has no host and no @ in its name.
+    if (isMysqlFamily && (p.kind === 'user' || p.name.includes('@'))) {
       const parsed = parseMysqlAccount(p.name);
       setName(parsed.name);
       setHost(parsed.host || '%');
@@ -588,7 +611,9 @@ export const UserManagement: React.FC<{
     setMode('edit');
     setSelectedName(p.name);
     setPrincipalType(principalTypeOf(p));
-    if (isMysqlFamily && p.kind === 'user') {
+    // A MySQL or TiDB role is an account too, listed as name@host; a MariaDB
+    // role has no host and no @ in its name.
+    if (isMysqlFamily && (p.kind === 'user' || p.name.includes('@'))) {
       const parsed = parseMysqlAccount(p.name);
       setName(parsed.name);
       setHost(parsed.host || '%');
@@ -984,7 +1009,18 @@ export const UserManagement: React.FC<{
                               : 'text-slate-300 hover:bg-slate-900/80'
                           }`}
                         >
-                          <td className="px-2.5 py-1.5 font-mono text-[12px]">{p.name}</td>
+                          <td className="px-2.5 py-1.5 font-mono text-[12px]">
+                            {p.name}
+                            {allowAllByName.get(p.name) && (
+                              <span
+                                data-testid={`user-allow-all-${p.name}`}
+                                title={describeAllowAll(allowAllByName.get(p.name)!)}
+                                className="ml-1.5 inline-block rounded border border-rose-500/40 bg-rose-500/10 px-1 font-sans text-[9px] font-bold uppercase tracking-wide text-rose-200"
+                              >
+                                {allowAllByName.get(p.name)!.kind === 'superuser' ? 'superuser' : 'allow-all'}
+                              </span>
+                            )}
+                          </td>
                           <td className="px-2.5 py-1.5 capitalize">{p.kind}</td>
                           <td className="px-2.5 py-1.5 text-slate-400 truncate max-w-[10rem]" title={p.memberOf.join(', ')}>
                             {p.memberOf.length ? p.memberOf.join(', ') : '—'}
@@ -1279,6 +1315,24 @@ export const UserManagement: React.FC<{
                       </div>
                     </Field>
                   )}
+
+                  {mode === 'add' &&
+                    !(isDb2 && principalType === 'user') &&
+                    roleOptions.some((o) => o.value !== name.trim()) && (
+                      <Field
+                        label="Member of"
+                        hint="Roles and groups this account joins. It holds everything they hold."
+                      >
+                        <ObjectPicker
+                          label="Roles and groups it joins"
+                          testId="user-member-of"
+                          items={roleOptions.map((o) => o.value).filter((v) => v !== name.trim())}
+                          selected={memberRoles}
+                          onChange={setMemberRoles}
+                          emptyHint="No roles or groups listed for this connection."
+                        />
+                      </Field>
+                    )}
 
                   {mode === 'edit' && alteration === 'expire' && support.canExpire && (
                     <Field

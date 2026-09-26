@@ -634,3 +634,62 @@ describe('AccessView — Permission stale catalog', () => {
     expect(principals).not.toMatch(/only_on_postgres/);
   });
 });
+
+describe('AccessView — User Management roles and allow-all', () => {
+  const catalog = (dialect: string, principals: unknown[]) =>
+    fetchDbAccess.mockResolvedValue({
+      dialect,
+      schema: 'public',
+      mode: 'native',
+      support: { mode: 'native', query: true, grant: true, hint: '' },
+      principals,
+      privileges: [],
+    });
+
+  beforeEach(() => {
+    fetchDbAccess.mockReset();
+    fetchSchemaList.mockReset();
+    fetchSchemaList.mockResolvedValue(['public']);
+  });
+
+  async function openUsers(connectionId: string, row: string) {
+    render(<AccessView />);
+    fireEvent.click(screen.getByTestId('access-tab-users'));
+    fireEvent.change(screen.getByTestId('access-connection'), { target: { value: connectionId } });
+    await waitFor(() => expect(screen.getByTestId(`user-row-${row}`)).toBeTruthy());
+  }
+
+  it('puts a new account in the roles picked from the list', async () => {
+    catalog('postgres', [
+      { name: 'readonly', kind: 'role', canLogin: false, memberOf: [], members: [] },
+      { name: 'writers', kind: 'role', canLogin: false, memberOf: [], members: [] },
+    ]);
+    await openUsers('c1', 'readonly');
+    fireEvent.click(screen.getByTestId('user-add-user'));
+    fireEvent.change(screen.getByTestId('user-name'), { target: { value: 'analyst' } });
+    fireEvent.click(screen.getByTestId('user-member-of-item-readonly'));
+
+    const sql = screen.getByTestId('user-sql').textContent ?? '';
+    expect(sql).toMatch(/CREATE ROLE "analyst"/);
+    expect(sql).toMatch(/GRANT "readonly" TO "analyst";/);
+    expect(sql).not.toMatch(/writers/);
+  });
+
+  it('tags a superuser in the list', async () => {
+    catalog('postgres', [
+      { name: 'boss', kind: 'user', canLogin: true, memberOf: [], members: [], superuser: true },
+      { name: 'alice', kind: 'user', canLogin: true, memberOf: [], members: [], superuser: false },
+    ]);
+    await openUsers('c1', 'boss');
+    expect(screen.getByTestId('user-allow-all-boss').textContent).toBe('superuser');
+    expect(screen.queryByTestId('user-allow-all-alice')).toBeNull();
+  });
+
+  it('drops a MySQL role by its account name, not as name@host@%', async () => {
+    catalog('mysql', [{ name: 'reader@%', kind: 'role', canLogin: false, memberOf: [], members: [] }]);
+    await openUsers('c2', 'reader@%');
+    fireEvent.click(screen.getByTestId('user-row-reader@%'));
+    fireEvent.click(screen.getByTestId('user-drop-selected'));
+    expect(screen.getByTestId('user-sql').textContent).toMatch(/DROP ROLE 'reader'@'%';/);
+  });
+});

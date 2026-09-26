@@ -55,7 +55,10 @@ export {
 } from '../../providers/db2/db2.user-sql.js';
 
 import type { GeneratedUserSql, UserManagementSupport, UserRequest } from './user-sql.types.js';
+import type { GeneratedStatement } from './access-sql.types.js';
 import { resolveUserSql } from './user-sql.registry.js';
+import { buildGrantRevokeSql, formatDbGrantee } from './db-access.js';
+import { accessFamily } from './intent.js';
 
 export function userManagementSupport(dialect: string): UserManagementSupport {
   return { ...resolveUserSql(dialect).support };
@@ -86,5 +89,67 @@ export function buildUserSql(
     return { error: support.reason ?? 'This engine cannot create users in SQL.' };
   }
 
-  return impl.build({ ...request, name }, dialect);
+  const built = impl.build({ ...request, name }, dialect);
+  if ('error' in built) return built;
+  const roles = (request.roles ?? []).map((r) => r.trim()).filter(Boolean);
+  if (request.action !== 'create' || roles.length === 0) return built;
+  const memberships = roleMembershipStatements(request, name, roles, dialect);
+  if ('error' in memberships) return memberships;
+  return { ...built, statements: [...built.statements, ...memberships] };
+}
+
+/**
+ * GRANT each chosen role to the account just created.
+ *
+ * On the MySQL family a granted role is inactive until the session turns it on,
+ * so without a default role the new account logs in holding none of what it
+ * was just given. MySQL and TiDB take `ALL`; MariaDB takes exactly one.
+ */
+function roleMembershipStatements(
+  request: UserRequest,
+  name: string,
+  roles: string[],
+  dialect: string
+): GeneratedStatement[] | { error: string } {
+  const fam = accessFamily(dialect);
+  const mysqlFamily = fam === 'mysql' || fam === 'mariadb';
+  const isUser = request.principalType === 'user';
+  const grantee = mysqlFamily && isUser ? `${name}@${request.host?.trim() || '%'}` : name;
+  const out: GeneratedStatement[] = [];
+  for (const role of roles) {
+    const built = buildGrantRevokeSql({
+      dialect,
+      action: 'grant',
+      privilege: role,
+      objectType: 'ROLE',
+      objectName: role,
+      grantee,
+      granteeKind: request.principalType,
+    });
+    if ('error' in built) return built;
+    out.push({
+      sql: built.sql,
+      explanation: `Adds ${name} to ${role}, so it holds everything ${role} holds.`,
+      risk: 'elevated',
+    });
+  }
+  if (mysqlFamily && isUser) {
+    const account = formatDbGrantee(dialect, grantee, 'user');
+    out.push(
+      fam === 'mariadb'
+        ? {
+            sql: `SET DEFAULT ROLE ${formatDbGrantee(dialect, roles[0]!, 'role')} FOR ${account};`,
+            explanation: `Turns ${roles[0]} on at login. MariaDB keeps one default role${
+              roles.length > 1 ? '; the others are switched on with SET ROLE' : ''
+            }.`,
+            risk: 'low',
+          }
+        : {
+            sql: `SET DEFAULT ROLE ALL TO ${account};`,
+            explanation: 'Turns the granted roles on at login. MySQL leaves a granted role inactive otherwise.',
+            risk: 'low',
+          }
+    );
+  }
+  return out;
 }

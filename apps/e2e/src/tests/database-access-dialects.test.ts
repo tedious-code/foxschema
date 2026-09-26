@@ -34,7 +34,7 @@ import { describe, it, beforeAll, afterAll, beforeEach, expect } from 'vitest';
 import type { Page } from 'playwright';
 import { buildDriver, quitDriver } from '../helpers/driver.js';
 import { getSourceConfig, hasConfig } from '../helpers/db-config.js';
-import { deleteSavedConnections, engineAcceptsSyntax } from '../helpers/sql-exec.js';
+import { deleteSavedConnections, engineAcceptsSyntax, tryCleanup } from '../helpers/sql-exec.js';
 import { clickRateLimited } from '../helpers/rate-limited.js';
 import { saveScreenshot } from '../helpers/screenshot.js';
 import { AppPage } from '../pages/AppPage.js';
@@ -91,6 +91,87 @@ const only = (process.env.E2E_DIALECTS ?? '')
   .split(',')
   .map((s) => s.trim().toLowerCase())
   .filter(Boolean);
+
+/**
+ * A role, an account in it, and an allow-all grant, the way each engine spells
+ * them — so the test reads back what the engine really holds.
+ *
+ * `userRowName` is how the Users list names the account (MySQL family: with
+ * its host); `allowAll` is the tag expected on it, or null for none.
+ */
+function rolesFixture(
+  dialect: string,
+  runId: string,
+  password: string
+): {
+  role: string;
+  user: string;
+  userRowName: string;
+  allowAll: 'allow-all' | 'superuser' | null;
+  setup: string[];
+  teardown: string[];
+} | null {
+  const role = `fox_ro_${runId}`;
+  const user = `fox_ua_${runId}`;
+  if (dialect === 'mysql' || dialect === 'tidb') {
+    return {
+      role: `${role}@%`,
+      user: `${user}@%`,
+      userRowName: `${user}@%`,
+      allowAll: 'allow-all',
+      setup: [
+        `CREATE ROLE '${role}'@'%'`,
+        `CREATE USER '${user}'@'%' IDENTIFIED BY '${password}'`,
+        `GRANT '${role}'@'%' TO '${user}'@'%'`,
+        `GRANT ALL PRIVILEGES ON *.* TO '${user}'@'%'`,
+      ],
+      teardown: [`DROP USER '${user}'@'%'`, `DROP ROLE '${role}'@'%'`],
+    };
+  }
+  if (dialect === 'mariadb') {
+    return {
+      role,
+      user: `${user}@%`,
+      userRowName: `${user}@%`,
+      allowAll: 'allow-all',
+      setup: [
+        `CREATE ROLE ${role}`,
+        `CREATE USER '${user}'@'%' IDENTIFIED BY '${password}'`,
+        `GRANT ${role} TO '${user}'@'%'`,
+        `GRANT ALL PRIVILEGES ON *.* TO '${user}'@'%'`,
+      ],
+      teardown: [`DROP USER '${user}'@'%'`, `DROP ROLE ${role}`],
+    };
+  }
+  if (dialect === 'postgres') {
+    return {
+      role,
+      user,
+      userRowName: user,
+      allowAll: 'superuser',
+      setup: [`CREATE ROLE ${role}`, `CREATE ROLE ${user} LOGIN SUPERUSER IN ROLE ${role}`],
+      teardown: [`DROP ROLE ${user}`, `DROP ROLE ${role}`],
+    };
+  }
+  if (dialect === 'clickhouse') {
+    // The e2e `default` user may not grant ALL; SELECT ON *.* is enough to
+    // check that an instance-wide grant is read, and it is not allow-all.
+    return {
+      role,
+      user,
+      userRowName: user,
+      allowAll: null,
+      setup: [
+        `CREATE ROLE ${role}`,
+        `CREATE USER ${user} IDENTIFIED BY '${password}'`,
+        `GRANT ${role} TO ${user}`,
+        `GRANT SELECT ON *.* TO ${user}`,
+      ],
+      teardown: [`DROP USER ${user}`, `DROP ROLE ${role}`],
+    };
+  }
+  return null;
+}
 
 const configured = ALL_DIALECTS.filter(
   (d) => hasConfig(d) && (only.length === 0 || only.includes(d))
@@ -679,6 +760,53 @@ describe.skipIf(configured.length === 0)('Database Access · User Management', (
         await format.selectOption('raw');
         await saveScreenshot(driver, `dbaccess-command-${dialect}`);
       }, 120_000);
+
+      it('lists roles as roles, with their members, and tags an account allowed everything', async () => {
+        const fixture = rolesFixture(dialect, runId, password);
+        if (!fixture) return;
+
+        const setup = await engineAcceptsSyntax(dialect, fixture.setup);
+        expect(setup.rejected ?? '', setup.rejected ?? '').toBe('');
+        if (setup.skipped) {
+          // This login may not manage roles (the TiDB e2e user, for one). That
+          // says nothing about how Fox reads them, so there is nothing to test.
+          console.warn(`[db-access] ${dialect} could not set up roles: ${setup.skipped}`);
+          await tryCleanup(dialect, fixture.teardown);
+          return;
+        }
+        try {
+          await driver.locator('[data-testid="access-tab-users"]').click();
+          await selectConnection(dialect);
+          await refreshCatalog();
+          await driver.waitForSelector(rowFor(fixture.user), { timeout: 60_000 });
+          await catalogIdle();
+
+          // The role was listed as a user on the MySQL family, which emptied
+          // "Roles & groups" on every one of them.
+          expect(
+            await driver.locator(rowFor(fixture.role)).first().getAttribute('data-kind'),
+            `${dialect} lists ${fixture.role} as a role`
+          ).toBe('role');
+          const userRow = driver.locator(rowFor(fixture.user)).first();
+          expect(await userRow.getAttribute('data-kind')).toBe('user');
+          expect(await userRow.innerText(), `${dialect} shows ${fixture.user}'s role`).toContain(
+            fixture.role
+          );
+
+          // `GRANT ALL ON *.*` and a superuser both used to read as holding
+          // nothing at all.
+          const tag = driver.locator(`[data-testid="user-allow-all-${fixture.userRowName}"]`);
+          if (fixture.allowAll) {
+            expect(await tag.count(), `${dialect} tags ${fixture.user} as allowed everything`).toBe(1);
+            expect((await tag.innerText()).toLowerCase()).toBe(fixture.allowAll);
+          } else {
+            expect(await tag.count()).toBe(0);
+          }
+          await saveScreenshot(driver, `dbaccess-roles-${dialect}`);
+        } finally {
+          await tryCleanup(dialect, fixture.teardown);
+        }
+      }, 180_000);
     });
   }
 
